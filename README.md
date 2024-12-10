@@ -48,20 +48,13 @@ I will soon add the environment.yaml for easing the process
 
 ### Step 1: Get Station List
 
-<<<<<<< HEAD
+
 First the user has to determine the available station in an area by giving a couple of the two opposite corners cordinates
 
 ```bash
 python3 station_manager.py
-=======
-```bash
-<<<<<<< HEAD
-station_manager.py
->>>>>>> 219ae51 (change a bit README)
-=======
-python3 station_manager.py
->>>>>>> 2ec6b8a (change README.md)
-```
+
+
 Run station_manager.py with the desired corner coordinates 
 The ones suggested in brackets are centered around Bolzano city.
 
