@@ -1,0 +1,44 @@
+2024-12-09 13:58:31,951 - netatmo_test_logger - INFO - Starting test suite
+2024-12-09 13:58:31,953 - netatmo_test_logger - INFO - Starting test class: TestAuthConfig
+2024-12-09 13:58:31,954 - netatmo_test_logger - INFO - Starting test: test_auth_config_validation
+2024-12-09 13:58:31,955 - netatmo_test_logger - INFO - Setting up AuthConfig test
+2024-12-09 13:58:31,956 - netatmo_test_logger - DEBUG - Test config created: {'CLIENT_ID': 'test_id', 'CLIENT_SECRET': 'test_secret', 'TOKEN_FILE': PosixPath('test_tokens.json'), 'TOKEN_URL': 'https://api.netatmo.com/oauth2/token', 'INITIAL_REFRESH_TOKEN': 'test_refresh_token'}
+2024-12-09 13:58:31,956 - netatmo_test_logger - INFO - Testing auth config validation
+2024-12-09 13:58:31,957 - netatmo_test_logger - INFO - Successfully caught invalid config
+2024-12-09 13:58:31,958 - netatmo_test_logger - DEBUG - Error message: Please set a valid CLIENT_ID
+2024-12-09 13:58:31,959 - netatmo_test_logger - INFO - Finished test: test_auth_config_validation
+2024-12-09 13:58:31,960 - netatmo_test_logger - INFO - Finished test class: TestAuthConfig
+2024-12-09 13:58:31,961 - netatmo_test_logger - INFO - Starting test class: TestDataManager
+2024-12-09 13:58:31,964 - netatmo_test_logger - INFO - Starting test: test_save_station_data
+2024-12-09 13:58:31,965 - netatmo_test_logger - INFO - Setting up DataManager test
+2024-12-09 13:58:31,971 - netatmo_test_logger - DEBUG - Test data created:    temperature   timestamp
+0         20.5  2024-01-01
+1         21.0  2024-01-02
+2024-12-09 13:58:31,972 - netatmo_test_logger - INFO - Testing station data save
+2024-12-09 13:58:31,975 - netatmo_test_logger - INFO - Successfully saved station data
+2024-12-09 13:58:31,976 - netatmo_test_logger - DEBUG - Data saved to: data/raw/station_station1.csv
+2024-12-09 13:58:31,976 - netatmo_test_logger - INFO - Finished test: test_save_station_data
+2024-12-09 13:58:31,977 - netatmo_test_logger - INFO - Cleaning up test files
+2024-12-09 13:58:31,978 - netatmo_test_logger - INFO - Cleanup successful
+2024-12-09 13:58:31,979 - netatmo_test_logger - INFO - Finished test class: TestDataManager
+2024-12-09 13:58:31,980 - netatmo_test_logger - INFO - Starting test class: TestNetatmoAuthenticator
+2024-12-09 13:58:31,980 - netatmo_test_logger - INFO - Starting test: test_refresh_access_token
+2024-12-09 13:58:31,981 - netatmo_test_logger - INFO - Setting up NetatmoAuthenticator test
+2024-12-09 13:58:31,982 - netatmo_test_logger - INFO - Testing token refresh
+2024-12-09 13:58:31,983 - netatmo_test_logger - DEBUG - Setting up mock response
+2024-12-09 13:58:31,984 - netatmo_test_logger - INFO - Attempting token refresh
+2024-12-09 13:58:31,986 - netatmo_test_logger - DEBUG - Token refresh result: {'access_token': 'new_access_token', 'refresh_token': 'new_refresh_token'}
+2024-12-09 13:58:31,987 - netatmo_test_logger - INFO - Token refresh test successful
+2024-12-09 13:58:31,987 - netatmo_test_logger - INFO - Finished test: test_refresh_access_token
+2024-12-09 13:58:31,988 - netatmo_test_logger - INFO - Finished test class: TestNetatmoAuthenticator
+2024-12-09 13:58:31,989 - netatmo_test_logger - INFO - Starting test class: TestTemperatureFetcher
+2024-12-09 13:58:31,989 - netatmo_test_logger - INFO - Starting test: test_fetch_temperature_data
+2024-12-09 13:58:31,990 - netatmo_test_logger - INFO - Setting up TemperatureFetcher test
+2024-12-09 13:58:31,992 - netatmo_test_logger - DEBUG - Fetcher config: {'API_URL': 'https://api.netatmo.com/api/getmeasure', 'DATA_DIR': PosixPath('test_data'), 'CHUNK_SIZE': 24, 'N_DAYS_AGO': 7, 'REQUEST_DELAY': 0}
+2024-12-09 13:58:31,992 - netatmo_test_logger - INFO - Testing temperature data fetch
+2024-12-09 13:58:31,993 - netatmo_test_logger - DEBUG - Setting up mock response
+2024-12-09 13:58:31,993 - netatmo_test_logger - INFO - Attempting to fetch temperature data
+2024-12-09 13:58:31,995 - netatmo_test_logger - DEBUG - Fetch result: {'1609459200': [15.5], '1609462800': [16.0]}
+2024-12-09 13:58:31,995 - netatmo_test_logger - INFO - Temperature fetch test successful
+2024-12-09 13:58:31,996 - netatmo_test_logger - INFO - Finished test: test_fetch_temperature_data
+2024-12-09 13:58:31,997 - netatmo_test_logger - INFO - Finished test class: TestTemperatureFetcher

@@ -1,0 +1,30 @@
+name: condatitanlib
+channels:
+  - conda-forge
+dependencies:
+  - boost
+  - cmake
+  - doxygen
+  - gsl
+  - libblas
+  - numpy
+  - python=3.10.4
+  - swig
+  - spyder
+  - ca-certificates
+  - openssl
+  - pandas
+  - certifi
+  - xarray
+  - matplotlib
+  - folium
+  - netcdf4
+  - h5netcdf
+  - cartopy
+  - scipy
+  - osmnx
+  - seaborn
+  - plotly
+  - tqdm
+  - dask
+

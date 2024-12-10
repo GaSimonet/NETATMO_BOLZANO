@@ -1,0 +1,38 @@
+# Core data processing
+pandas
+numpy
+xarray
+
+# API and HTTP requests
+requests
+urllib3
+
+# Progress bars and user interface
+tqdm
+
+# Data paths and file handling
+pathlib
+
+# Data types and validation
+typing
+dataclasses
+
+# Optional visualization (if using plotting functions)
+matplotlib
+seaborn
+
+# Specific version requirements
+requests>=2.25.0
+pandas>=1.2.0
+numpy>=1.19.0
+urllib3>=1.26.0
+tqdm>=4.50.0
+
+# For QC spatial analysis
+scipy
+geopandas
+shapely
+
+# Optional - for Jupyter notebooks if used
+jupyter
+notebook
