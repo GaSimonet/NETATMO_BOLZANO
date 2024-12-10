@@ -6,7 +6,7 @@ This repository contains tools for collecting temperature data from Netatmo weat
 
 - Python 3.x
 - Netatmo API account and credentials
-- Required Python packages (listed in `requirements.txt`)
+- Required Python packages (listed in `requirements.txt`) [NEED to be updated]
 
 ## Setup
 
