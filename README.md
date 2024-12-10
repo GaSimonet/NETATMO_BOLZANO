@@ -53,7 +53,7 @@ First the user has to determine the available station in an area by giving a cou
 
 ```bash
 python3 station_manager.py
-
+```
 
 Run station_manager.py with the desired corner coordinates 
 The ones suggested in brackets are centered around Bolzano city.
