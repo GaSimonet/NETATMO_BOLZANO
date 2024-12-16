@@ -10,76 +10,73 @@ from datetime import datetime, timedelta
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 import time
+import glob
 
 @dataclass
 class FetchConfig:
     API_URL: str = 'https://api.netatmo.com/api/getmeasure'
     DATA_DIR: Path = Path('temperature_station_data')
     CHUNK_SIZE: int = 1024  # Maximum number of hourly measurements per request
-    N_DAYS_AGO: int = 465
     REQUEST_DELAY: float = 0  # seconds between requests
 
-class RateLimitManager:
-    def __init__(self, requests_per_hour=500):
-        self.requests_per_hour = requests_per_hour
-        self.counter_file = Path('request_counter.json')
-        self.load_counter()
+class StationDataManager:
+    def __init__(self, data_dir: Path):
+        self.data_dir = data_dir
+        self._ensure_dir_exists()
 
-    def load_counter(self):
-        """Load or initialize request counter"""
-        if self.counter_file.exists():
-            with open(self.counter_file) as f:
-                data = json.load(f)
-                self.request_count = data['count']
-                self.hour_start = datetime.fromisoformat(data['hour_start'])
-        else:
-            self.request_count = 0
-            self.hour_start = datetime.now()
-            self.save_counter()
+    def _ensure_dir_exists(self):
+        """Create data directory if it doesn't exist"""
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
-    def save_counter(self):
-        """Save current counter state"""
-        with open(self.counter_file, 'w') as f:
-            json.dump({
-                'count': self.request_count,
-                'hour_start': self.hour_start.isoformat()
-            }, f)
+    def find_station_file(self, station_id: str) -> Optional[Path]:
+        """Find existing file for station"""
+        pattern = os.path.join(self.data_dir, f'temperature_data_*.csv')
+        for file_path in glob.glob(pattern):
+            try:
+                df = pd.read_csv(file_path)
+                if 'station_ID' in df.columns and station_id in df['station_ID'].values:
+                    return Path(file_path)
+            except Exception as e:
+                print(f"Warning: Error reading {file_path}: {e}")
+        return None
 
-    def check_and_update(self):
-        """Check if we can make a request and update counter"""
-        now = datetime.now()
-        
-        # Reset counter if an hour has passed
-        if now - self.hour_start > timedelta(hours=1):
-            self.request_count = 0
-            self.hour_start = now
-            print("\nNew hour started - Reset request counter")
-            self.save_counter()
-        
-        # Check if we've hit the limit
-        if self.request_count >= self.requests_per_hour:
-            wait_time = self.hour_start + timedelta(hours=1) - now
-            minutes = int(wait_time.total_seconds() / 60)
-            print(f"\nRate limit reached. Please wait {minutes} minutes or restart later.")
-            print(f"Next reset time: {self.hour_start + timedelta(hours=1)}")
-            return False
-        
-        # Update counter
-        self.request_count += 1
-        self.save_counter()
-        return True
-
+    def get_last_timestamp(self, file_path: Path, station_id: str) -> Optional[datetime]:
+        """Get last timestamp for specific station from file"""
+        try:
+            # Read the CSV file with the first column as index
+            df = pd.read_csv(file_path, index_col=0, parse_dates=True)
+            
+            # Filter for the specific station
+            station_data = df[df['station_ID'] == station_id]
+            
+            if not station_data.empty:
+                # Convert index to datetime if it isn't already
+                if not isinstance(station_data.index, pd.DatetimeIndex):
+                    station_data.index = pd.to_datetime(station_data.index)
+                
+                # Get the maximum timestamp
+                last_timestamp = station_data.index.max()
+                
+                # Verify it's a reasonable timestamp (after 2020)
+                if last_timestamp.year < 2020:
+                    print(f"Warning: Found suspiciously old timestamp: {last_timestamp}")
+                    return None
+                
+                print(f"Found last timestamp for station {station_id}: {last_timestamp}")
+                return last_timestamp
+            else:
+                print(f"No existing data found for station {station_id}")
+                return None
+                
+        except Exception as e:
+            print(f"Warning: Error getting timestamp from {file_path}: {e}")
+            return None
 class TemperatureFetcher:
     def __init__(self, access_token: str, config: FetchConfig = FetchConfig()):
         self.access_token = access_token
         self.config = config
-        self._ensure_data_dir()
         self.session = self._setup_session()
-        self.rate_limiter = RateLimitManager()
-    
-    def _ensure_data_dir(self):
-        """Create data directory if it doesn't exist"""
-        self.config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self.data_manager = StationDataManager(config.DATA_DIR)
 
     def _setup_session(self):
         session = requests.Session()
@@ -94,10 +91,7 @@ class TemperatureFetcher:
 
     def fetch_temperature_data(self, device_id: str, module_id: str, 
                              date_begin: int, date_end: int) -> Optional[Dict]:
-        if not self.rate_limiter.check_and_update():
-            print("Waiting for rate limit reset...")
-            return None
-            
+        """Fetch temperature data from the API"""
         try:
             time.sleep(self.config.REQUEST_DELAY)
             
@@ -124,7 +118,7 @@ class TemperatureFetcher:
             
             if not data.get('body'):
                 print(f"No data available for this period - continuing to next time chunk")
-                return {'body': {}}  # Return empty but valid data structure
+                return {'body': {}}
                 
             return data['body']
             
@@ -132,7 +126,7 @@ class TemperatureFetcher:
             print(f"API request failed: {e}")
             return None
 
-    def process_station_list(self, station_list_path: str):
+    def process_station_list(self, station_list_path: str, *, start_date: Optional[datetime] = None):
         """Process all stations from CSV file"""
         progress_file = Path('fetch_progress.json')
         
@@ -141,28 +135,7 @@ class TemperatureFetcher:
             station_list = pd.read_csv(station_list_path)
             total_stations = len(station_list)
             print(f"Found {total_stations} stations to process")
-    
-            # Find the last timestamp in existing data
-            data_dir = Path('temperature_station_data')
-            latest_timestamp = None
-            if data_dir.exists():
-                for file in data_dir.glob('temperature_data_*.csv'):
-                    try:
-                        df = pd.read_csv(file, index_col=0)
-                        df.index = pd.to_datetime(df.index)
-                        file_max = df.index.max()
-                        if latest_timestamp is None or file_max > latest_timestamp:
-                            latest_timestamp = file_max
-                    except Exception as e:
-                        print(f"Error reading {file}: {e}")
-                        continue
-            
-            if latest_timestamp:
-                print(f"Will update data from: {latest_timestamp}")
-                date_begin = int(latest_timestamp.timestamp())
-            else:
-                date_begin = int((datetime.now() - timedelta(days=self.config.N_DAYS_AGO)).timestamp())
-    
+
             # Process all stations
             for i in range(total_stations):
                 try:
@@ -174,15 +147,33 @@ class TemperatureFetcher:
                     lat = station_list['latitude'][i]
                     lon = station_list['longitude'][i]
                     alt = station_list['altitude'][i]
-    
+
                     if pd.isna(module_id):
                         print(f"Skipping device {device_id} - no module ID")
                         continue
-    
-                    # Process with latest timestamp
+
+                    # Look for existing data file for this station
+                    existing_file = self.data_manager.find_station_file(device_id)
+                    if existing_file:
+                        last_timestamp = self.data_manager.get_last_timestamp(existing_file, device_id)
+                        if last_timestamp:
+                            print(f"Found existing data for station {device_id}, last timestamp: {last_timestamp}")
+                            # Use the later of start_date or last_timestamp + 1 hour
+                            if start_date:
+                                fetch_start = max(start_date, last_timestamp + timedelta(hours=1))
+                            else:
+                                fetch_start = last_timestamp + timedelta(hours=1)
+                        else:
+                            fetch_start = start_date
+                    else:
+                        fetch_start = start_date
+
+                    print(f"Starting fetch from: {fetch_start}")
+
+                    # Process with appropriate start time
                     df = self.process_temperature_data(
                         i, device_id, module_id, lat, lon, alt,
-                        date_begin=date_begin
+                        date_begin=int(fetch_start.timestamp())
                     )
                     
                     if df is None:  # Rate limit hit
@@ -193,7 +184,7 @@ class TemperatureFetcher:
                                 'message': 'Paused due to rate limit'
                             }, f)
                         return False
-    
+
                 except Exception as e:
                     print(f"Error processing station {i}: {e}")
                     with open(progress_file, 'w') as f:
@@ -203,31 +194,30 @@ class TemperatureFetcher:
                             'error': str(e)
                         }, f)
                     raise
-    
+
             print("\nAll stations processed successfully!")
             return True
-    
+
         except Exception as e:
             print(f"Error processing station list: {e}")
             raise
 
     def process_temperature_data(self, i: int, device_id: str, module_id: str,
-                               lat: float, lon: float, alt: float,
-                               date_begin: int = None) -> Optional[pd.DataFrame]:
+                           lat: float, lon: float, alt: float,
+                           date_begin: int = None) -> Optional[pd.DataFrame]:
         """Process temperature data for a single station"""
         file_path = self.config.DATA_DIR / f'temperature_data_{i}.csv'
         all_data = []
+        
+        # Initialize DataFrame with proper columns
+        columns = ['temperature', 'longitude', 'latitude', 'altitude', 'station_ID']
         
         if file_path.exists():
             df = pd.read_csv(file_path, index_col=0)
             df.index = pd.to_datetime(df.index)
         else:
-            df = pd.DataFrame(columns=['temperature', 'longitude', 'latitude', 
-                                     'altitude', 'station_ID'])
-    
-        # Use provided date_begin or calculate from config
-        if date_begin is None:
-            date_begin = self._calculate_start_date()
+            df = pd.DataFrame(columns=columns)
+            df.index = pd.DatetimeIndex([])  # Empty datetime index
     
         now_epoch = int(datetime.now().timestamp())
         
@@ -251,29 +241,52 @@ class TemperatureFetcher:
                 new_df['altitude'] = alt
                 new_df['station_ID'] = device_id
                 
-                all_data.append(new_df)
-                print(f"Retrieved {len(new_df)} records")
+                # Ensure new_df has all required columns
+                for col in columns:
+                    if col not in new_df.columns:
+                        new_df[col] = None
+                        
+                # Only append if we have actual data
+                if not new_df.empty:
+                    all_data.append(new_df)
+                    print(f"Retrieved {len(new_df)} records")
             
             date_begin = (date_end // 3600 * 3600) + 3600
     
         if all_data:
-            # Combine old and new data
-            combined_df = pd.concat([df] + all_data)
-            # Remove duplicates and sort
-            combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
-            combined_df = combined_df.sort_index()
+            # Only proceed with concatenation if we have new data
+            if len(all_data) > 0:
+                # Combine with existing data only if it exists and has actual data
+                if not df.empty:
+                    all_data.insert(0, df)
+                
+                # Concatenate all non-empty DataFrames
+                combined_df = pd.concat(all_data, axis=0)
+                
+                # Remove duplicates and sort
+                combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+                combined_df = combined_df.sort_index()
+                
+                # Ensure all columns are present
+                for col in columns:
+                    if col not in combined_df.columns:
+                        combined_df[col] = None
+                
+                # Reorder columns to match expected structure
+                combined_df = combined_df[columns]
+                
+                # Save and verify
+                combined_df.to_csv(file_path)
+                print(f"Saved updated data to {file_path}")
+                print(f"Total records: {len(combined_df)}")
+                
+                return combined_df
+        
+        # If we have no new data but existing data exists, return it
+        if not df.empty:
+            return df
             
-            # Save and verify
-            combined_df.to_csv(file_path)
-            print(f"Saved updated data to {file_path}")
-            print(f"Total records: {len(combined_df)}")
-            
-            return combined_df
-            
-        return df
-
-    def _calculate_start_date(self) -> int:
-        """Calculate start date based on N_DAYS_AGO"""
-        return (int((datetime.now() - 
-                timedelta(days=self.config.N_DAYS_AGO)).timestamp()) 
-                // 3600 * 3600)
+        # Create an empty DataFrame with proper structure if we have no data at all
+        empty_df = pd.DataFrame(columns=columns)
+        empty_df.index = pd.DatetimeIndex([])
+        return empty_df

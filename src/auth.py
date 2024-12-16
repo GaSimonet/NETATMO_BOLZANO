@@ -1,113 +1,106 @@
-import json
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Dec 16 2024
+@author: gsimonet
+"""
+
+import os
 import requests
+import json
 from pathlib import Path
-from typing import Optional, Dict
-from datetime import datetime
-from dataclasses import dataclass
 
-@dataclass
-class AuthConfig:
-    # Your credentials here
-    CLIENT_ID: str = '***********'  # Replace with your client ID
-    CLIENT_SECRET: str = '************'  # Replace with your client secret
-    TOKEN_FILE: Path = Path('tokens.json')
-    TOKEN_URL: str = "https://api.netatmo.com/oauth2/token"
-    # Your initial refresh token here
-    INITIAL_REFRESH_TOKEN: str = '************'  # Replace with your refresh token
+# Get absolute path to src directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+token_file = os.path.join(current_dir, 'tokens.json')
 
-class NetatmoAuthenticator:
-    def __init__(self, config: AuthConfig = AuthConfig()):
-        self.config = config
-        self._validate_config()
-    
-    def _validate_config(self):
-        """Validate that required credentials are set"""
-        if not self.config.CLIENT_ID or self.config.CLIENT_ID == 'your_client_id':
-            raise ValueError("Please set a valid CLIENT_ID")
-        if not self.config.CLIENT_SECRET or self.config.CLIENT_SECRET == 'your_client_secret':
-            raise ValueError("Please set a valid CLIENT_SECRET")
+# Authentication details
+client_id = '67600433b1888076b20a1acc'
+client_secret = 'NtqyeExOVqqI4U1jg7ctVXEhhHzZFDhN'
+initial_refresh_token = '6707f09769ac144d3f066c9d|158aced50853ebf6b430da09d62a3ce5'
 
-    def load_refresh_token(self) -> Optional[str]:
-        """Load refresh token from JSON file"""
-        try:
-            with open(self.config.TOKEN_FILE, 'r') as file:
-                tokens = json.load(file)
-                return tokens.get('refresh_token')
-        except FileNotFoundError:
-            print(f"Token file not found at {self.config.TOKEN_FILE}")
-            return None
-        except json.JSONDecodeError:
-            print(f"Error decoding token file at {self.config.TOKEN_FILE}")
-            return None
-
-    def save_refresh_token(self, refresh_token: str):
-        """Save refresh token to JSON file"""
-        try:
-            with open(self.config.TOKEN_FILE, 'w') as file:
-                json.dump({
-                    'refresh_token': refresh_token,
-                    'updated_at': datetime.now().isoformat()
-                }, file, indent=2)
-            print(f"Refresh token saved to {self.config.TOKEN_FILE}")
-        except Exception as e:
-            print(f"Error saving refresh token: {str(e)}")
-
-    def refresh_access_token(self, refresh_token: Optional[str] = None) -> Optional[Dict[str, str]]:
-        """Get new access token using refresh token"""
-        # Use provided refresh token or initial refresh token from config
-        refresh_token = refresh_token or self.config.INITIAL_REFRESH_TOKEN
-        
-        payload = {
-            'grant_type': 'refresh_token',
-            'refresh_token': refresh_token,
-            'client_id': self.config.CLIENT_ID,
-            'client_secret': self.config.CLIENT_SECRET
-        }
-        
-        try:
-            response = requests.post(self.config.TOKEN_URL, data=payload)
-            response.raise_for_status()
-            
-            tokens = response.json()
-            new_access_token = tokens['access_token']
-            new_refresh_token = tokens.get('refresh_token', refresh_token)
-            
-            print("Access token renewed successfully")
-            
-            if new_refresh_token != refresh_token:
-                print("New refresh token received")
-                self.save_refresh_token(new_refresh_token)
-            
-            return {
-                'access_token': new_access_token,
-                'refresh_token': new_refresh_token
-            }
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Error refreshing access token: {str(e)}")
-            if hasattr(e.response, 'text'):
-                print(f"Response: {e.response.text}")
-            return None
-
-def get_netatmo_tokens() -> Optional[Dict[str, str]]:
-    """Main function to get Netatmo tokens"""
+def load_refresh_token():
+    """Load refresh token from JSON file"""
     try:
-        auth = NetatmoAuthenticator()
-        
-        # Try to load existing refresh token or use initial one from config
-        refresh_token = auth.load_refresh_token() or auth.config.INITIAL_REFRESH_TOKEN
-        
-        return auth.refresh_access_token(refresh_token)
-        
-    except Exception as e:
-        print(f"Authentication error: {str(e)}")
+        with open(token_file, 'r') as file:
+            tokens = json.load(file)
+            token = tokens.get('refresh_token')
+            print(f"Loaded refresh token from {token_file}")
+            return token
+    except FileNotFoundError:
+        print(f"Note: {token_file} not found, will use initial token")
+        return None
+    except json.JSONDecodeError:
+        print(f"Note: Could not decode {token_file}, will use initial token")
         return None
 
-# Example usage 
+def save_refresh_token(refresh_token):
+    """Save refresh token to JSON file"""
+    try:
+        with open(token_file, 'w') as file:
+            json.dump({'refresh_token': refresh_token}, file)
+        print(f"Saved new refresh token to {token_file}")
+    except Exception as e:
+        print(f"Note: Could not save to {token_file}: {e}")
+
+def refresh_access_token(client_id, client_secret, refresh_token):
+    """Get new access token using refresh token"""
+    token_url = "https://api.netatmo.com/oauth2/token"
+    
+    print(f"\nRequesting new access token...")
+    print(f"Using client_id: {client_id}")
+    print(f"Using refresh_token: {refresh_token[:15]}...")
+    
+    payload = {
+        'grant_type': 'refresh_token',
+        'refresh_token': refresh_token,
+        'client_id': client_id,
+        'client_secret': client_secret
+    }
+    
+    response = requests.post(token_url, data=payload)
+    if response.status_code == 200:
+        new_tokens = response.json()
+        new_access_token = new_tokens['access_token']
+        new_refresh_token = new_tokens.get('refresh_token', refresh_token)
+        print("✓ Access token renewed successfully")
+        
+        if new_refresh_token != refresh_token:
+            print("✓ Got new refresh token, saving...")
+            save_refresh_token(new_refresh_token)
+        
+        return {
+            'access_token': new_access_token,
+            'refresh_token': new_refresh_token
+        }
+    else:
+        print("\nError renewing access token:")
+        print(f"Status code: {response.status_code}")
+        print(f"Response: {response.text}")
+        return None
+
+def get_netatmo_tokens():
+    """Main function to get Netatmo tokens"""
+    print("\nCurrent working directory:", os.path.abspath(os.path.dirname(__file__)))
+    print(f"Using token file: {token_file}")
+    
+    # Try to load existing refresh token or use initial one from config
+    refresh_token = load_refresh_token() or initial_refresh_token
+    
+    return refresh_access_token(client_id, client_secret, refresh_token)
+
 if __name__ == "__main__":
+    print("Netatmo Authentication Test")
+    print("-" * 30)
+    
+    # First ensure tokens.json exists with initial token
+    if not os.path.exists(token_file):
+        print(f"\nCreating {token_file} with initial token...")
+        save_refresh_token(initial_refresh_token)
+    
     tokens = get_netatmo_tokens()
     if tokens:
-        print("Authentication successful!")
-        print(f"Access token: {tokens['access_token'][:10]}...")  # Show first 10 chars
+        print("\nAuthentication successful!")
+        print(f"Access Token: {tokens['access_token'][:10]}...")
     else:
-        print("Authentication failed")
+        print("\nAuthentication failed")
