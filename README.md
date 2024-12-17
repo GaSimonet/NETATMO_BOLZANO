@@ -72,17 +72,19 @@ The script will:
   1. Trying to refresh the access token
   2. Waiting for an hour if needed
 - Save progress and allow resuming if interrupted
-
-
-
-
 - Create CSV files with temperature data in `temperature_station_data` directory
+
+## Output Files
+run create_netcdf.py --> gather all the csv files from temperature_data_stations folder into one .nc file
+```bash
+python3 create_netcdf.py
+```
 
 ## Quality Control Pipeline
 
 After collecting the data, run the quality control process:
 
-1.CHech if all the data where successfully downloaded
+1.Check if all the data where successfully downloaded
 
 2. Run the quality control pipeline:
 ```bash
@@ -119,8 +121,7 @@ Applied to both timesteps and stations
 this script also create filter_qc_nc files in qc_output_folder
 
 
-## Output Files
-run create_netcdf.py --> gather all the csv files from temperature_data_stations folder into one .nc file
+
 
 ## Tests 
 
