@@ -15,9 +15,9 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 token_file = os.path.join(current_dir, 'tokens.json')
 
 # Authentication details
-client_id = '67600433b1888076b20a1acc'
-client_secret = 'NtqyeExOVqqI4U1jg7ctVXEhhHzZFDhN'
-initial_refresh_token = '6707f09769ac144d3f066c9d|158aced50853ebf6b430da09d62a3ce5'
+client_id = '6764472d8312a71ccf005029'
+client_secret = 'ezIx4rXqCCCprnKGAA1lxiCH7KIcPB0LmFKBYos7Z'
+initial_refresh_token = '6707f09769ac144d3f066c9d|c76a2b671503bb461b73a502fb75a3f7'
 
 def load_refresh_token():
     """Load refresh token from JSON file"""

@@ -116,7 +116,7 @@ def run_fetcher():
         
         if not result:
             # First try with a new token
-            new_result = try_with_new_token(2, start_date)
+            new_result = try_with_new_token(station_list_path, start_date)
             if new_result:
                 continue
             

@@ -113,6 +113,11 @@ class TemperatureFetcher:
                 print("Rate limit reached, saving progress...")
                 return None
             
+            # Handle 404 errors by returning empty body
+            if response.status_code == 404:
+                print(f"Station {device_id} not found (404), skipping...")
+                return {'body': {}}
+                
             response.raise_for_status()
             data = response.json()
             
@@ -123,6 +128,10 @@ class TemperatureFetcher:
             return data['body']
             
         except requests.exceptions.RequestException as e:
+            # Handle other request exceptions by logging and returning empty body
+            if '404' in str(e):
+                print(f"Station {device_id} not found (404), skipping...")
+                return {'body': {}}
             print(f"API request failed: {e}")
             return None
 
