@@ -127,7 +127,15 @@ def main():
    output_dir = Path('qc_output')
    output_dir.mkdir(exist_ok=True)
    
-   output_file = output_dir / f'temperature_qc_filtered_{timeframe_str}.nc'
+   # Create more detailed timeframe string with start and end dates
+   if timeframe_str == "full":
+       start_date = ds.time.values[0]
+       end_date = ds.time.values[-1]
+       timeframe_detail = f"{pd.Timestamp(start_date).strftime('%Y%m%d_%H%M')}_{pd.Timestamp(end_date).strftime('%Y%m%d_%H%M')}"
+   else:
+       timeframe_detail = timeframe_str
+
+   output_file = output_dir / f'temperature_qc_filtered_{timeframe_detail}.nc'
    
    # Create filtered dataset
    print(f"\nCreating filtered dataset: {output_file}")
