@@ -22,14 +22,15 @@ I have myself created a environment for the NetAtmo data:
 conda env create -f netatmo_py_env.yaml
 
 Alternatively use mamba or conda for creating and manually installing the packages:
+'''bash
 $mamba create -n netatmo_py_env python=3.10
 $mamba activate netatmo_py_env
 $mamba install xarray pandas numpy cartopy netcdf4 requests urllib3 tqdm pathlib typing plotly dataclasses matplotlib seaborn scipy geopandas shapely 
-
+'''
 otherwise :
-
+'''bash
 pip install -r requirements.txt
-
+'''
 
 
 3. Configure Netatmo API credentials:
