@@ -6,7 +6,7 @@ from src.quality_control.filters import (
    check_seasonal_thresholds,
    spatial_consistency_test,
    buddy_check,
-   filter_by_completeness,
+   filter_by_completeness_temporal,
    run_qc_pipeline,
    create_filtered_netcdf
 )
@@ -69,18 +69,18 @@ def main():
        'elev_gradient': -0.0065
    }
 
+   # Spatial consistency test: disabled (set apply_sct = True to run it)
+   apply_sct = False
    sct_params = {
-       'inner_radius': 2000,
-       'outer_radius': 8000,
-       'num_min': 10,
+       'radius': 5000,          # neighbour search radius [m]
+       'num_min': 5,
        'num_max': 10,
-       'pos_threshold': 0.5,
-       'neg_threshold': 0.5,
-       'min_elev_diff': 20,
-       'min_horizontal_scale': 1000,
-       'vertical_scale': 200,
-       'eps2': 0.5,
-       'prob_gross_error': 0.2
+       'threshold': 3.0,        # allowed deviation in neighbour std units
+       'max_elev_diff': 200,    # [m]
+       'elev_gradient': -0.0065,
+       'min_std': 0.5,          # [°C]
+       'eps': 100.0,            # [m], inverse-distance weighting offset
+       'num_iterations': 2
    }
 
    # Get path to raw NC files directory and list available files
@@ -119,7 +119,7 @@ def main():
        ds,
        season_thresholds,
        buddy_params,
-       sct_params,
+       sct_params if apply_sct else None,
        min_completeness=0.8
    )
 
