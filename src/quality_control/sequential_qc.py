@@ -140,7 +140,6 @@ def run_sequential_qc_pipeline(ds, season_thresholds, buddy_params, sct_params, 
                 ds.longitude.values,
                 ds.altitude.values,
                 T_lvl2[t],
-                times=ds.time.values,
                 prev_values=prev_values[t],
                 next_values=next_values[t],
                 **sct_params

@@ -66,18 +66,16 @@ def main():
 
     # Updated parameters for spatial-temporal consistency test
     sct_params = {
-        'inner_radius': 2000,  # 2km radius
-        'outer_radius': 5000,  # 5km radius
-        'num_min': 10,
+        'radius': 5000,             # neighbour search radius [m]
+        'num_min': 5,
         'num_max': 10,
-        'pos_threshold': 0.5,
-        'neg_threshold': 0.5,
-        'min_elev_diff': 20,
-        'max_elev_diff': 200,  # Added for new function
-        'min_horizontal_scale': 1000,
-        'vertical_scale': 200,
-        'temporal_threshold': 3.0,  # Added for temporal check
-        'eps': 0.1  # Added for distance weighting
+        'threshold': 3.0,           # allowed deviation in neighbour std units
+        'max_elev_diff': 200,       # [m]
+        'elev_gradient': -0.0065,
+        'min_std': 0.5,             # [°C]
+        'eps': 100.0,               # [m], inverse-distance weighting offset
+        'num_iterations': 2,
+        'temporal_threshold': 3.0   # max change between consecutive timesteps [°C]
     }
 
     # Set paths

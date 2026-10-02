@@ -28,180 +28,128 @@ def check_seasonal_thresholds(values, dates, season_thresholds):
             flags &= ~((values > limits['max']) & season_mask)
     
     return flags
-def spatial_temporal_consistency_test(lats, lons, alts, values, times,
-                                    prev_values, next_values,
-                                    inner_radius, outer_radius,
-                                    num_min, num_max, 
-                                    pos_threshold, neg_threshold,
-                                    min_elev_diff, max_elev_diff,
-                                    min_horizontal_scale, vertical_scale,
-                                    temporal_threshold,
-                                    eps=0.1, prob_gross_error=0.1, 
-                                    num_iterations=1,
-                                    obs_to_check=None, tree=None):
-    """
-    Performs spatial and temporal consistency test on temperature observations.
-    
-    Parameters:
-    -----------
-    lats, lons, alts : array-like
-        Coordinates and elevations of stations
-    values : array-like
-        Current temperature observations
-    times : array-like
-        Observation timestamps
-    prev_values, next_values : array-like
-        Previous and next temperature observations for temporal check
-    inner_radius, outer_radius : float
-        Search radii for neighboring stations (in same units as lat/lon)
-    num_min, num_max : int
-        Min/max number of neighbors to consider
-    pos_threshold, neg_threshold : float
-        Thresholds for positive/negative deviations
-    min_elev_diff, max_elev_diff : float
-        Min/max elevation differences to consider
-    temporal_threshold : float
-        Maximum allowed temporal change
-    """
-    if obs_to_check is None:
-        obs_to_check = np.ones(len(values), dtype=bool)
-        
-    if tree is None:
-        points = np.column_stack([lons, lats])
-        tree = cKDTree(points)
-    
-    flags = np.zeros(len(values), dtype=bool)
-    processed = np.zeros(len(values), dtype=bool)
-    
-    # First pass: temporal consistency check
-    temporal_flags = np.zeros(len(values), dtype=bool)
-    
-    for idx in range(len(values)):
-        if prev_values is not None and next_values is not None:
-            prev_diff = abs(values[idx] - prev_values[idx])
-            next_diff = abs(values[idx] - next_values[idx])
-            
-            if prev_diff > temporal_threshold or next_diff > temporal_threshold:
-                temporal_flags[idx] = True
-    
-    # Second pass: spatial consistency with elevation consideration
-    for _ in range(num_iterations):
-        idx_to_process = np.where(obs_to_check & ~processed)[0]
-        
-        while len(idx_to_process) > 0:
-            idx = idx_to_process[0]
-            neighbors_idx = tree.query_ball_point([lons[idx], lats[idx]], outer_radius)
-            
-            # Remove flagged and self from neighbors
-            neighbors_idx = [i for i in neighbors_idx if i != idx and not flags[i]]
-            
-            if len(neighbors_idx) < num_min:
-                processed[idx] = True
-                idx_to_process = idx_to_process[1:]
-                continue
-            
-            # Apply elevation filtering
-            elevation_diff = np.abs(alts[idx] - alts[neighbors_idx])
-            valid_elevation = (elevation_diff >= min_elev_diff) & (elevation_diff <= max_elev_diff)
-            neighbors_idx = [i for i, v in zip(neighbors_idx, valid_elevation) if v]
-            
-            if len(neighbors_idx) > num_max:
-                distances = np.sqrt((lons[neighbors_idx] - lons[idx])**2 + 
-                                 (lats[neighbors_idx] - lats[idx])**2)
-                closest_idx = np.argsort(distances)[:num_max]
-                neighbors_idx = [neighbors_idx[i] for i in closest_idx]
-            
-            # Calculate distance-weighted background
-            distances = np.sqrt((lons[neighbors_idx] - lons[idx])**2 + 
-                             (lats[neighbors_idx] - lats[idx])**2)
-            weights = 1 / (distances + eps)
-            background = np.average(values[neighbors_idx], weights=weights)
-            
-            # Apply elevation correction to background
-            elev_diffs = alts[neighbors_idx] - alts[idx]
-            background += np.mean(elev_diffs) * vertical_scale
-            
-            deviation = values[idx] - background
-            analysis_error = np.std(values[neighbors_idx])
-            
-            # Combined spatial and temporal check
-            if (deviation > pos_threshold * analysis_error or 
-                deviation < -neg_threshold * analysis_error or
-                temporal_flags[idx]):
-                flags[idx] = True
-            
-            processed[idx] = True
-            inner_neighbors = tree.query_ball_point([lons[idx], lats[idx]], inner_radius)
-            processed[inner_neighbors] = True
-            idx_to_process = np.where(obs_to_check & ~processed)[0]
-    
-    return flags, temporal_flags
 
-def get_background_estimate(station_idx, neighbors_idx, lats, lons, alts, values,
-                          vertical_scale, eps=0.1):
+
+def _project_utm(lats, lons):
+    """Projects lat/lon to UTM coordinates in metres (same projection as buddy_check)."""
+    xy = ccrs.UTM(33).transform_points(ccrs.PlateCarree(), np.asarray(lons), np.asarray(lats))
+    return xy[:, 0], xy[:, 1]
+
+
+def spatial_consistency_test(lats, lons, alts, values, radius=5000, num_min=5,
+                             num_max=10, threshold=3.0, max_elev_diff=200,
+                             elev_gradient=-0.0065, min_std=0.5, eps=100.0,
+                             num_iterations=2):
     """
-    Helper function to calculate background estimate with elevation correction.
+    Spatial consistency test (SCT) on temperature observations of one timestep.
+
+    For each observation, a background is estimated by inverse-distance weighting of
+    the num_max nearest valid neighbours within `radius`, after adjusting neighbour
+    values to the station's elevation with `elev_gradient`. The observation is flagged
+    if |value - background| > threshold * max(std of adjusted neighbours, min_std).
+    Flagged observations are excluded as neighbours in the next iteration.
+
+    Parameters
+    ----------
+    lats, lons, alts : array-like
+        Station coordinates [deg] and elevations [m]
+    values : array-like
+        Temperatures [°C]; NaN values are ignored (never flagged, never used)
+    radius : float
+        Neighbour search radius [m]
+    num_min, num_max : int
+        Minimum neighbours needed to test an observation / maximum used
+    threshold : float
+        Allowed deviation in units of the neighbours' standard deviation
+    max_elev_diff : float
+        Neighbours differing more than this in elevation are ignored [m] (<= 0 disables)
+    elev_gradient : float
+        Lapse rate used for elevation adjustment [°C/m]
+    min_std : float
+        Lower bound on the standard deviation [°C]
+    eps : float
+        Distance added in the inverse-distance weights [m]
+    num_iterations : int
+        Number of passes
+
+    Returns
+    -------
+    np.ndarray of bool
+        True where the observation is suspect
     """
-    distances = np.sqrt((lons[neighbors_idx] - lons[station_idx])**2 + 
-                       (lats[neighbors_idx] - lats[station_idx])**2)
-    weights = 1 / (distances + eps)
-    
-    # Distance-weighted mean
-    background = np.average(values[neighbors_idx], weights=weights)
-    
-    # Elevation correction
-    elev_diffs = alts[neighbors_idx] - alts[station_idx]
-    background += np.mean(elev_diffs) * vertical_scale
-    
-    return background
-def spatial_consistency_test(lats, lons, alts, values, inner_radius, outer_radius,
-                           num_min, num_max, pos_threshold, neg_threshold,
-                           min_elev_diff, min_horizontal_scale, vertical_scale,
-                           eps2=0.1, prob_gross_error=0.1, num_iterations=1,
-                           obs_to_check=None, tree=None):
-    """Performs spatial consistency test on temperature observations."""
-    if obs_to_check is None:
-        obs_to_check = np.ones(len(values), dtype=bool)
-        
-    if tree is None:
-        points = np.column_stack([lons, lats])
-        tree = cKDTree(points)
-    
-    flags = np.zeros(len(values), dtype=bool)
-    processed = np.zeros(len(values), dtype=bool)
-    
+    alts = np.asarray(alts, dtype=float)
+    values = np.asarray(values, dtype=float)
+    n = len(values)
+    flags = np.zeros(n, dtype=bool)
+
+    x, y = _project_utm(lats, lons)
+    tree = cKDTree(np.column_stack([x, y]))
+
+    # Neighbour matrix (n x k) sorted by distance, padded with -1
+    k = n if n <= 1 else n - 1
+    dist, nb = tree.query(np.column_stack([x, y]), k=k + 1, distance_upper_bound=radius)
+    dist, nb = dist[:, 1:], nb[:, 1:]          # drop self
+    in_range = nb < n
+    nb = np.where(in_range, nb, 0)
+    if max_elev_diff > 0:
+        in_range &= np.abs(alts[nb] - alts[:, None]) <= max_elev_diff
+
+    # Neighbour values adjusted to the station's elevation
+    adjusted = values[nb] + elev_gradient * (alts[:, None] - alts[nb])
+    weights = 1.0 / (dist + eps)
+
+    valid = ~np.isnan(values) & ~np.isnan(alts)
     for _ in range(num_iterations):
-        idx_to_process = np.where(obs_to_check & ~processed)[0]
-        
-        while len(idx_to_process) > 0:
-            idx = idx_to_process[0]
-            neighbors_idx = tree.query_ball_point([lons[idx], lats[idx]], outer_radius)
-            neighbors_idx = [i for i in neighbors_idx if i != idx and not flags[i]]
-            
-            if len(neighbors_idx) < num_min:
-                processed[idx] = True
-                idx_to_process = idx_to_process[1:]
-                continue
-            
-            if len(neighbors_idx) > num_max:
-                distances = np.sqrt((lons[neighbors_idx] - lons[idx])**2 + 
-                                 (lats[neighbors_idx] - lats[idx])**2)
-                closest_idx = np.argsort(distances)[:num_max]
-                neighbors_idx = [neighbors_idx[i] for i in closest_idx]
-            
-            background = np.mean(values[neighbors_idx])
-            deviation = values[idx] - background
-            analysis_error = np.std(values[neighbors_idx])
-            
-            if deviation > pos_threshold * analysis_error or deviation < -neg_threshold * analysis_error:
-                flags[idx] = True
-            
-            processed[idx] = True
-            inner_neighbors = tree.query_ball_point([lons[idx], lats[idx]], inner_radius)
-            processed[inner_neighbors] = True
-            idx_to_process = np.where(obs_to_check & ~processed)[0]
-    
+        usable = in_range & valid[nb] & ~flags[nb] & ~np.isnan(adjusted)
+        usable &= np.cumsum(usable, axis=1) <= num_max
+        count = usable.sum(axis=1)
+
+        w = np.where(usable, weights, 0.0)
+        adj = np.where(usable, adjusted, 0.0)
+        with np.errstate(invalid='ignore', divide='ignore'):
+            background = (w * adj).sum(axis=1) / w.sum(axis=1)
+            mean = adj.sum(axis=1) / count
+            std = np.sqrt((np.where(usable, adjusted - mean[:, None], 0.0) ** 2).sum(axis=1) / count)
+        std = np.maximum(std, min_std)
+
+        tested = valid & ~flags & (count >= num_min)
+        new_flags = tested & (np.abs(values - background) > threshold * std)
+        if not new_flags.any():
+            break
+        flags |= new_flags
+
     return flags
+
+
+def spatial_temporal_consistency_test(lats, lons, alts, values, prev_values, next_values,
+                                      temporal_threshold=3.0, **sct_kwargs):
+    """
+    Spatial consistency test combined with a step check against the previous and
+    next timestep.
+
+    Parameters
+    ----------
+    prev_values, next_values : array-like
+        Observations at the previous / next timestep (NaN if unavailable)
+    temporal_threshold : float
+        Maximum allowed change between consecutive timesteps [°C]
+    **sct_kwargs
+        Parameters passed to spatial_consistency_test
+
+    Returns
+    -------
+    flags : np.ndarray of bool
+        True where the observation fails the spatial or the temporal check
+    temporal_flags : np.ndarray of bool
+        True where the observation fails the temporal check
+    """
+    values = np.asarray(values, dtype=float)
+    with np.errstate(invalid='ignore'):
+        temporal_flags = ((np.abs(values - prev_values) > temporal_threshold) |
+                          (np.abs(values - next_values) > temporal_threshold))
+    spatial_flags = spatial_consistency_test(lats, lons, alts, values, **sct_kwargs)
+    return spatial_flags | temporal_flags, temporal_flags
+
 
 def buddy_check(lats, lons, alts, values, radius, num_min=3, threshold=3, 
                 max_elev_diff=-1, elev_gradient=0, min_std=0.1, num_iterations=1):
@@ -254,10 +202,10 @@ def buddy_check(lats, lons, alts, values, radius, num_min=3, threshold=3,
 
 
 ## Deprecated (was too restrictive on long data sets)
-# def filter_by_completeness(data, flags, min_completeness=0.8, axis=1):
-#     """Filters timesteps or stations based on completeness threshold."""
-#     good_fraction = np.sum(flags, axis=axis) / flags.shape[axis]
-#     return good_fraction >= min_completeness
+def filter_by_completeness(data, flags, min_completeness=0.8, axis=1):
+    """Filters timesteps or stations based on completeness threshold."""
+    good_fraction = np.sum(flags, axis=axis) / flags.shape[axis]
+    return good_fraction >= min_completeness
 
 
 def filter_by_completeness_temporal(data, flags, times, min_completeness=0.8):
@@ -309,7 +257,9 @@ def filter_by_completeness_temporal(data, flags, times, min_completeness=0.8):
     # Process each station
     for station in range(data.shape[1]):
         station_data = data[:, station]
-        station_flags = flags[:, station]
+        # A value is valid only if it passed the QC and is not missing
+        station_flags = flags[:, station] & ~np.isnan(station_data)
+        output_flags[:, station] = station_flags
         
         # Create DataFrame for this station's data
         station_df = pd.DataFrame({
@@ -351,9 +301,9 @@ def filter_by_completeness_temporal(data, flags, times, min_completeness=0.8):
                                                  group['date'].max(), 
                                                  freq='D')))
                 
-                # Count days with valid observations (at least one valid observation)
-                daily_validity = group.groupby(group['date'].dt.date)['flags'].any()
-                valid_days = daily_validity.sum()
+                # Count days that passed the daily completeness check
+                passed_daily = pd.Series(output_flags[group.index, station], index=group.index)
+                valid_days = passed_daily.groupby(group['date'].dt.date).any().sum()
                 
                 if valid_days / expected_days < min_completeness:
                     # Flag all observations for this month
@@ -434,8 +384,8 @@ def run_qc_pipeline(ds, season_thresholds, buddy_params, sct_params, min_complet
         Seasonal threshold parameters
     buddy_params : dict
         Parameters for buddy check
-    sct_params : dict
-        Parameters for spatial consistency test
+    sct_params : dict or None
+        Parameters for spatial consistency test (None skips the test)
     min_completeness : float
         Minimum completeness threshold
     
@@ -480,17 +430,20 @@ def run_qc_pipeline(ds, season_thresholds, buddy_params, sct_params, min_complet
             **buddy_params
         )
     
-    # 4. Run spatial consistency test
-    print("Running spatial consistency test...")
+    # 4. Run spatial consistency test (optional, skipped if sct_params is None)
+    # Values already rejected by the seasonal or buddy check are not used as neighbours
     sct_flags = np.zeros_like(filtered_data, dtype=bool)
-    for t in range(filtered_data.shape[0]):
-        sct_flags[t] = spatial_consistency_test(
-            ds.latitude.values,
-            ds.longitude.values,
-            ds.altitude.values,
-            filtered_data[t],
-            **sct_params
-        )
+    if sct_params is not None:
+        print("Running spatial consistency test...")
+        sct_input = np.where(filtered_flags & ~buddy_flags, filtered_data, np.nan)
+        for t in range(filtered_data.shape[0]):
+            sct_flags[t] = spatial_consistency_test(
+                ds.latitude.values,
+                ds.longitude.values,
+                ds.altitude.values,
+                sct_input[t],
+                **sct_params
+            )
     
     # 5. Combine flags
     combined_flags = (
