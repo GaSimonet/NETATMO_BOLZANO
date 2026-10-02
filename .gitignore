@@ -1,0 +1,13 @@
+# Credentials and tokens -- never commit
+src/netatmo_credentials.json
+src/tokens.json
+tests/test_tokens.json
+src/auth.py.bkp_*
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editors
+.spyproject/
